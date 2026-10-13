@@ -89,6 +89,13 @@ pub struct AdwaitaFrame<State> {
     title: Option<String>,
     title_text: Option<TitleText>,
     shadow: Shadow,
+
+    /// Draw decorations but without the titlebar.
+    hide_titlebar: bool,
+
+    /// Last known window size, used to recreate decorations on config change.
+    width: NonZeroU32,
+    height: NonZeroU32,
 }
 
 impl<State> AdwaitaFrame<State>
@@ -111,6 +118,7 @@ where
             &base_surface,
             &subcompositor,
             &queue_handle,
+            frame_config.hide_titlebar,
         ));
 
         let theme = frame_config.theme;
@@ -134,6 +142,9 @@ where
             wm_capabilities: WindowManagerCapabilities::all(),
             resizable: true,
             shadow: Shadow::default(),
+            hide_titlebar: frame_config.hide_titlebar,
+            width: NonZeroU32::MIN,
+            height: NonZeroU32::MIN,
         })
     }
 
@@ -141,6 +152,18 @@ where
     pub fn set_config(&mut self, config: FrameConfig) {
         self.theme = config.theme;
         self.dirty = true;
+
+        if self.hide_titlebar != config.hide_titlebar {
+            self.hide_titlebar = config.hide_titlebar;
+            let mut decorations = DecorationParts::new(
+                &self.base_surface,
+                &self.subcompositor,
+                &self.queue_handle,
+                self.hide_titlebar,
+            );
+            decorations.resize(self.width.get(), self.height.get());
+            self.decorations = Some(decorations);
+        }
     }
 
     fn precise_location(
@@ -212,6 +235,10 @@ where
             return Some(true);
         }
 
+        if self.hide_titlebar {
+            decorations.hide_titlebar();
+        }
+
         let colors = if self.state.contains(WindowState::ACTIVATED) {
             &self.theme.active
         } else {
@@ -228,10 +255,11 @@ where
         let border_paint = colors.border_paint();
 
         // Draw the borders.
-        for (idx, part) in decorations
-            .parts()
-            .filter(|(idx, _)| *idx == DecorationParts::HEADER || draw_borders)
-        {
+        let hide_titlebar = self.hide_titlebar;
+        for (idx, part) in decorations.parts().filter(|(idx, _)| {
+            (*idx == DecorationParts::HEADER && !hide_titlebar)
+                || (draw_borders && *idx != DecorationParts::HEADER)
+        }) {
             let scale = self.scale_factor;
 
             let mut rect = part.surface_rect;
@@ -329,6 +357,22 @@ where
                                 visible_border_size as f32,
                             )
                         }
+                        // Without a titlebar the header no longer draws the top visible border,
+                        // so draw it here.
+                        DecorationParts::TOP if hide_titlebar => {
+                            let x = rect.x.unsigned_abs() * scale;
+                            let x = x.saturating_sub(visible_border_size);
+
+                            let y = rect.y.unsigned_abs() * scale;
+                            let y = y.saturating_sub(visible_border_size);
+
+                            Rect::from_xywh(
+                                x as f32,
+                                y as f32,
+                                (rect.width - 2 * x) as f32,
+                                visible_border_size as f32,
+                            )
+                        }
                         _ => None,
                     };
 
@@ -407,6 +451,7 @@ where
                 &self.base_surface,
                 &self.subcompositor,
                 &self.queue_handle,
+                self.hide_titlebar,
             ));
             self.dirty = true;
             self.should_sync = true;
@@ -419,6 +464,9 @@ where
     }
 
     fn resize(&mut self, width: NonZeroU32, height: NonZeroU32) {
+        self.width = width;
+        self.height = height;
+
         let Some(decorations) = self.decorations.as_mut() else {
             log::error!("trying to resize the hidden frame.");
             return;
@@ -440,7 +488,10 @@ where
         width: NonZeroU32,
         height: NonZeroU32,
     ) -> (Option<NonZeroU32>, Option<NonZeroU32>) {
-        if self.decorations.is_none() || self.state.contains(WindowState::FULLSCREEN) {
+        if self.decorations.is_none()
+            || self.state.contains(WindowState::FULLSCREEN)
+            || self.hide_titlebar
+        {
             (Some(width), Some(height))
         } else {
             (
@@ -451,7 +502,10 @@ where
     }
 
     fn add_borders(&self, width: u32, height: u32) -> (u32, u32) {
-        if self.decorations.is_none() || self.state.contains(WindowState::FULLSCREEN) {
+        if self.decorations.is_none()
+            || self.state.contains(WindowState::FULLSCREEN)
+            || self.hide_titlebar
+        {
             (width, height)
         } else {
             (width, height + HEADER_SIZE)
@@ -459,7 +513,10 @@ where
     }
 
     fn location(&self) -> (i32, i32) {
-        if self.decorations.is_none() || self.state.contains(WindowState::FULLSCREEN) {
+        if self.decorations.is_none()
+            || self.state.contains(WindowState::FULLSCREEN)
+            || self.hide_titlebar
+        {
             (0, 0)
         } else {
             (0, -(HEADER_SIZE as i32))
@@ -545,12 +602,17 @@ where
 #[derive(Debug, Clone)]
 pub struct FrameConfig {
     pub theme: ColorTheme,
+    /// Draw decorations but without the titlebar.
+    pub hide_titlebar: bool,
 }
 
 impl FrameConfig {
     /// Create the new configuration with the given `theme`.
     pub fn new(theme: ColorTheme) -> Self {
-        Self { theme }
+        Self {
+            theme,
+            hide_titlebar: false,
+        }
     }
 
     /// This is equivalent of calling `FrameConfig::new(ColorTheme::auto())`.
@@ -559,6 +621,7 @@ impl FrameConfig {
     pub fn auto() -> Self {
         Self {
             theme: ColorTheme::auto(),
+            hide_titlebar: false,
         }
     }
 
@@ -568,6 +631,7 @@ impl FrameConfig {
     pub fn light() -> Self {
         Self {
             theme: ColorTheme::light(),
+            hide_titlebar: false,
         }
     }
 
@@ -577,7 +641,14 @@ impl FrameConfig {
     pub fn dark() -> Self {
         Self {
             theme: ColorTheme::dark(),
+            hide_titlebar: false,
         }
+    }
+
+    /// Draw decorations but without the titlebar.
+    pub fn hide_titlebar(mut self, hide: bool) -> Self {
+        self.hide_titlebar = hide;
+        self
     }
 }
 

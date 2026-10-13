@@ -16,6 +16,7 @@ use crate::{pointer::Location, wl_typed::WlTyped};
 #[derive(Debug)]
 pub struct DecorationParts {
     parts: [Part; 5],
+    hide_titlebar: bool,
 }
 
 impl DecorationParts {
@@ -32,10 +33,13 @@ impl DecorationParts {
         base_surface: &WlTyped<WlSurface, SurfaceData>,
         subcompositor: &SubcompositorState,
         queue_handle: &QueueHandle<State>,
+        hide_titlebar: bool,
     ) -> Self
     where
         State: Dispatch<WlSurface, SurfaceData> + Dispatch<WlSubsurface, SubsurfaceData> + 'static,
     {
+        let header_offset = if hide_titlebar { 0 } else { HEADER_SIZE };
+
         // XXX the order must be in sync with associated constants.
         let parts = [
             // Top.
@@ -45,7 +49,7 @@ impl DecorationParts {
                 queue_handle,
                 Rect {
                     x: -(BORDER_SIZE as i32),
-                    y: -(HEADER_SIZE as i32 + BORDER_SIZE as i32),
+                    y: -(header_offset as i32 + BORDER_SIZE as i32),
                     width: 0, // Defined by `Self::resize`.
                     height: BORDER_SIZE,
                 },
@@ -63,7 +67,7 @@ impl DecorationParts {
                 queue_handle,
                 Rect {
                     x: -(BORDER_SIZE as i32),
-                    y: -(HEADER_SIZE as i32),
+                    y: -(header_offset as i32),
                     width: BORDER_SIZE,
                     height: 0, // Defined by `Self::resize`.
                 },
@@ -81,7 +85,7 @@ impl DecorationParts {
                 queue_handle,
                 Rect {
                     x: 0, // Defined by `Self::resize`.
-                    y: -(HEADER_SIZE as i32),
+                    y: -(header_offset as i32),
                     width: BORDER_SIZE,
                     height: 0, // Defined by `Self::resize`.
                 },
@@ -125,7 +129,10 @@ impl DecorationParts {
             ),
         ];
 
-        Self { parts }
+        Self {
+            parts,
+            hide_titlebar,
+        }
     }
 
     pub fn parts(&self) -> std::iter::Enumerate<std::slice::Iter<Part>> {
@@ -147,6 +154,12 @@ impl DecorationParts {
         }
     }
 
+    pub fn hide_titlebar(&self) {
+        let part = self.header();
+        part.surface.attach(None, 0, 0);
+        part.surface.commit();
+    }
+
     // These unwraps are guaranteed to succeed because the affected options are filled above
     // and then never emptied afterwards.
     #[allow(clippy::unwrap_used)]
@@ -163,7 +176,8 @@ impl DecorationParts {
         self.parts[Self::TOP].input_rect.as_mut().unwrap().width =
             self.parts[Self::TOP].surface_rect.width - (BORDER_SIZE * 2) + (RESIZE_HANDLE_SIZE * 2);
 
-        self.parts[Self::LEFT].surface_rect.height = height + HEADER_SIZE;
+        let header_size = if self.hide_titlebar { 0 } else { HEADER_SIZE };
+        self.parts[Self::LEFT].surface_rect.height = height + header_size;
         self.parts[Self::LEFT].input_rect.as_mut().unwrap().height =
             self.parts[Self::LEFT].surface_rect.height;
 
