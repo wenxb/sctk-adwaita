@@ -46,8 +46,7 @@ impl RenderedShadow {
         for y in 0..edges_size as usize {
             let y_pos = y as f32 + 0.5;
             for x in 0..edges_size as usize {
-                let dist = edges_middle.distance(Point::from_xy(x as f32 + 0.5, y_pos))
-                    - corner_radius as f32;
+                let dist = edges_middle.distance(Point::from_xy(x as f32 + 0.5, y_pos));
                 let alpha = (shadow(dist, scale, active) * u8::MAX as f32).round() as u8;
 
                 #[allow(clippy::unwrap_used)]
@@ -155,142 +154,60 @@ impl RenderedShadow {
         let dst_width = dst_pixmap.width() as usize;
         let dst_height = dst_pixmap.height() as usize;
         let edges_half = self.edges.width() as usize / 2;
+
+        // 应用侧面板是直角：角纹理只画边距里的角象限（纹理中心对准面板角点），
+        // 边条剖面铺满整条边（含角两侧条带，后画覆盖角纹理），角点处两者衔接。
+        let border = shadow_size + visible_border_size;
+        let c = edges_half - border;
         match part_idx {
             DecorationParts::TOP => {
-                let left_edge_width = edges_half;
-                let right_edge_width = edges_half;
-                let side_width = dst_width
-                    .saturating_sub(left_edge_width)
-                    .saturating_sub(right_edge_width);
-
-                self.edges_draw(
-                    0,
-                    -(visible_border_size as isize),
-                    dst_pixmap,
-                    0,
-                    0,
-                    left_edge_width,
-                    dst_height,
-                );
+                self.edges_draw(c as isize, c as isize, dst_pixmap, 0, 0, border, border);
 
                 self.side_draw(
                     true,
                     true,
-                    side_width,
+                    dst_width.saturating_sub(2 * border),
                     dst_pixmap,
-                    left_edge_width,
+                    border,
                     visible_border_size,
                 );
 
                 self.edges_draw(
                     edges_half as isize,
-                    -(visible_border_size as isize),
+                    c as isize,
                     dst_pixmap,
-                    left_edge_width + side_width,
+                    dst_width.saturating_sub(border),
                     0,
-                    right_edge_width,
-                    dst_height,
+                    border,
+                    border,
                 );
             }
             DecorationParts::LEFT => {
-                let top_edge_height = corner_radius;
-                let bottom_edge_height = corner_radius - visible_border_size;
-                let side_height = dst_height
-                    .saturating_sub(top_edge_height)
-                    .saturating_sub(bottom_edge_height);
-
-                self.edges_draw(
-                    0,
-                    shadow_size as isize,
-                    dst_pixmap,
-                    0,
-                    0,
-                    dst_width.saturating_sub(visible_border_size),
-                    top_edge_height,
-                );
-
-                self.side_draw(true, false, side_height, dst_pixmap, 0, top_edge_height);
-
-                self.edges_draw(
-                    0,
-                    edges_half as isize,
-                    dst_pixmap,
-                    0,
-                    top_edge_height + side_height,
-                    dst_width.saturating_sub(visible_border_size),
-                    bottom_edge_height,
-                );
+                self.side_draw(true, false, dst_height, dst_pixmap, visible_border_size, 0);
             }
             DecorationParts::RIGHT => {
-                let top_edge_height = corner_radius;
-                let bottom_edge_height = corner_radius - visible_border_size;
-                let side_height = dst_height
-                    .saturating_sub(top_edge_height)
-                    .saturating_sub(bottom_edge_height);
-
-                self.edges_draw(
-                    edges_half as isize + corner_radius as isize,
-                    shadow_size as isize,
-                    dst_pixmap,
-                    visible_border_size,
-                    0,
-                    dst_width.saturating_sub(visible_border_size),
-                    top_edge_height,
-                );
-
-                self.side_draw(
-                    false,
-                    false,
-                    side_height,
-                    dst_pixmap,
-                    visible_border_size,
-                    top_edge_height,
-                );
-
-                self.edges_draw(
-                    edges_half as isize + corner_radius as isize,
-                    edges_half as isize,
-                    dst_pixmap,
-                    visible_border_size,
-                    top_edge_height + side_height,
-                    dst_width.saturating_sub(visible_border_size),
-                    bottom_edge_height,
-                );
+                self.side_draw(false, false, dst_height, dst_pixmap, 0, 0);
             }
             DecorationParts::BOTTOM => {
-                let left_edge_width = edges_half;
-                let right_edge_width = edges_half;
-                let side_width = dst_width
-                    .saturating_sub(left_edge_width)
-                    .saturating_sub(right_edge_width);
-
-                self.edges_draw(
-                    0,
-                    edges_half as isize + (corner_radius - visible_border_size) as isize,
-                    dst_pixmap,
-                    0,
-                    0,
-                    left_edge_width,
-                    dst_height,
-                );
+                self.edges_draw(c as isize, edges_half as isize, dst_pixmap, 0, 0, border, border);
 
                 self.side_draw(
                     false,
                     true,
-                    side_width,
+                    dst_width.saturating_sub(2 * border),
                     dst_pixmap,
-                    left_edge_width,
-                    visible_border_size,
+                    border,
+                    0,
                 );
 
                 self.edges_draw(
                     edges_half as isize,
-                    edges_half as isize + (corner_radius - visible_border_size) as isize,
+                    edges_half as isize,
                     dst_pixmap,
-                    left_edge_width + side_width,
+                    dst_width.saturating_sub(border),
                     0,
-                    right_edge_width,
-                    dst_height,
+                    border,
+                    border,
                 );
             }
             DecorationParts::HEADER => {

@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tiny_skia::{
-    Color, FillRule, Mask, Paint, Path, PathBuilder, Pixmap, PixmapMut, PixmapPaint, Point, Rect,
-    Stroke, Transform,
+    Color, FillRule, Mask, Path, PathBuilder, Pixmap, PixmapMut, PixmapPaint, Point, Rect,
+    Transform,
 };
 
 use smithay_client_toolkit::reexports::client::backend::ObjectId;
@@ -324,28 +324,12 @@ where
                     // The visible border is one pt.
                     let visible_border_size = VISIBLE_BORDER_SIZE * scale;
 
-                    // Shared geometry for the rounded border ring (hidden titlebar).
-                    let half = visible_border_size as f32 * 0.5;
-                    let border_w = ((self.width.get() + 1) * scale) as f32;
-                    let border_h = ((self.height.get() + 1) * scale) as f32;
-
                     // XXX we do all the match using integral types and then convert to f32 in the
                     // end to ensure that result is finite.
                     let border_rect = match border {
-                        DecorationParts::LEFT if hide_titlebar => {
-                            let x = rect.x.unsigned_abs() * scale;
-                            stroke_rounded_border(
-                                &mut pixmap,
-                                &border_paint,
-                                scale,
-                                x as f32 - half,
-                                -half,
-                                border_w,
-                                border_h,
-                                visible_border_size as f32,
-                            );
-                            None
-                        }
+                        // The border is drawn by the application itself; the frame
+                        // only provides the shadow and resize edges.
+                        DecorationParts::LEFT if hide_titlebar => None,
                         DecorationParts::LEFT => {
                             let x = (rect.x.unsigned_abs() * scale) - visible_border_size;
                             let y = rect.y.unsigned_abs() * scale;
@@ -356,19 +340,9 @@ where
                                 (rect.height - y) as f32,
                             )
                         }
-                        DecorationParts::RIGHT if hide_titlebar => {
-                            stroke_rounded_border(
-                                &mut pixmap,
-                                &border_paint,
-                                scale,
-                                half,
-                                -half,
-                                border_w,
-                                border_h,
-                                visible_border_size as f32,
-                            );
-                            None
-                        }
+                        // The border is drawn by the application itself; the frame
+                        // only provides the shadow and resize edges.
+                        DecorationParts::RIGHT if hide_titlebar => None,
                         DecorationParts::RIGHT => {
                             let y = rect.y.unsigned_abs() * scale;
                             Rect::from_xywh(
@@ -380,20 +354,9 @@ where
                         }
                         // We draw small visible border only bellow the window surface, no need to
                         // handle `TOP`.
-                        DecorationParts::BOTTOM if hide_titlebar => {
-                            let x = rect.x.unsigned_abs() * scale;
-                            stroke_rounded_border(
-                                &mut pixmap,
-                                &border_paint,
-                                scale,
-                                x as f32 - half,
-                                half,
-                                border_w,
-                                border_h,
-                                visible_border_size as f32,
-                            );
-                            None
-                        }
+                        // The border is drawn by the application itself; the frame
+                        // only provides the shadow and resize edges.
+                        DecorationParts::BOTTOM if hide_titlebar => None,
                         DecorationParts::BOTTOM => {
                             let x = (rect.x.unsigned_abs() * scale) - visible_border_size;
                             Rect::from_xywh(
@@ -403,23 +366,9 @@ where
                                 visible_border_size as f32,
                             )
                         }
-                        // Without a titlebar the header no longer draws the top border
-                        // and rounded corners, so the ring is stroked here as well.
-                        DecorationParts::TOP if hide_titlebar => {
-                            let x = rect.x.unsigned_abs() * scale;
-                            let y = rect.y.unsigned_abs() * scale;
-                            stroke_rounded_border(
-                                &mut pixmap,
-                                &border_paint,
-                                scale,
-                                x as f32 - half,
-                                y as f32 - half,
-                                border_w,
-                                border_h,
-                                visible_border_size as f32,
-                            );
-                            None
-                        }
+                        // The border is drawn by the application itself; the frame
+                        // only provides the shadow and resize edges.
+                        DecorationParts::TOP if hide_titlebar => None,
                         _ => None,
                     };
 
@@ -825,30 +774,6 @@ fn draw_headerbar_bg(
     );
 
     Some(())
-}
-
-/// Strokes the 1px rounded border ring when the titlebar is hidden. Every part
-/// strokes the same ring; each part's pixmap clips it to its own region, so the
-/// arcs and the straight edges together form the complete border.
-fn stroke_rounded_border(
-    pixmap: &mut PixmapMut,
-    border_paint: &Paint,
-    scale: u32,
-    bx: f32,
-    by: f32,
-    width: f32,
-    height: f32,
-    visible_border_size: f32,
-) {
-    let radius = (CORNER_RADIUS * scale) as f32;
-    let Some(path) = rounded_headerbar_shape(bx, by, width, height, radius) else {
-        return;
-    };
-    let stroke = Stroke {
-        width: visible_border_size,
-        ..Default::default()
-    };
-    let _ = pixmap.stroke_path(&path, border_paint, &stroke, Transform::identity(), None);
 }
 
 fn rounded_headerbar_shape(x: f32, y: f32, width: f32, height: f32, radius: f32) -> Option<Path> {
